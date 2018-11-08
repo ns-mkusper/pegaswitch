@@ -18,13 +18,13 @@ const yargs = require('yargs');
 
 let argv = yargs
 	.usage('Usage $0')
-	.describe('disable-curses', 'Disabled curses interface. Requires --logfile')
+	.describe('enable-curses', 'Enable curses interface.')
 	.describe('disable-dns', 'Disables builtin DNS server.')
 	.describe('ip', 'Override IP address DNS server responds with')
 	.describe('host', 'Override listen IP.')
 	.describe('logfile', 'Writes debug log to file')
 	.describe('setuid', 'Sets UID after binding ports (drop root priveleges)')
-	.example('$0 --ip 1.2.4.8 --disable-curses --logfile debug.txt --setuid 1000')
+	.example('$0 --ip 1.2.4.8 --logfile debug.txt --setuid 1000')
 	.help('h')
 	.nargs('ip', 1)
 	.nargs('host', 1)
@@ -34,9 +34,9 @@ let argv = yargs
 	.argv;
 
 if(os.platform() === 'win32') {
-	if(!argv['disable-curses']) {
+	if(argv['enable-curses']) {
 		console.warn('WARNING: pegaswitch does not support curses on Windows. Curses disabled by default.');
-		argv['disable-curses'] = true;
+		argv['enable-curses'] = false;
 	}
 
 } else if (process.getuid() !== 0) {
@@ -44,7 +44,7 @@ if(os.platform() === 'win32') {
 	process.exit();
 }	
 	
-if (argv['disable-curses'] && !argv.logfile) {
+if (!argv['enable-curses'] && !argv.logfile) {
 	argv.logfile = 'pegaswitch.log'
 	console.warn('With curses disabled, a logfile (--logfile) is required. Defaulting to \"pegaswitch.log\".');
 }
@@ -100,18 +100,21 @@ var fakeInternetEnabled = false;
 app.get('/', function (req, res) {
 	if (fakeInternetEnabled) {
 		res.set('X-Organization', 'Nintendo');
-		res.end('fake page');
-	} else {
-		serveIndex(req, res);
 	}
+	serveIndex(req, res);
 });
 
 app.get('/minmain.js', function (req, res) {
 	res.end(fs.readFileSync(path.resolve(__dirname, 'exploit/minmain.js')));
 });
 
-app.get('/nros/ace.nro', function (req, res) {
-  var u8 = new Uint8Array(fs.readFileSync(path.resolve(__dirname, 'nros/ace.nro')));
+app.get('/fake_news.mp', function (req, res) {
+	var u8 = new Uint8Array(fs.readFileSync(path.resolve(__dirname, 'files/fake_news.mp')));
+    res.end(JSON.stringify(Array.prototype.slice.call(u8)));
+});
+
+app.get('/nros/:nroname', function (req, res) {
+  var u8 = new Uint8Array(fs.readFileSync(path.resolve(__dirname, 'nros', req.params.nroname)));
   res.end(JSON.stringify(Array.prototype.slice.call(u8)));
 });
 
@@ -225,16 +228,14 @@ app.post('/filedump', function (req, res) {
 		flags: 'a'
 	}));
 
-	return res.sendStatus(200);
+	req.on('end', function() {
+		return res.sendStatus(200);
+	});
 });
 
 app.post('/fakeInternet', function (req, res) {
-	console.log('enabling fake internet');
-	fakeInternetEnabled = true;
-	setTimeout(function () {
-		console.log('disabling fake internet');
-		fakeInternetEnabled = false;
-	}, 8000);
+	console.log('toggling fake internet');
+	fakeInternetEnabled = !fakeInternetEnabled;
 });
 
 httpServerStarted = new Promise((resolve, reject) => {
@@ -257,6 +258,10 @@ Promise.all([dnsServerStarted, httpServerStarted]).then(() => {
 			process.exit(1);
 		}
 	}
+    
+    if (argv['webapplet'] !== undefined) {
+		fakeInternetEnabled = true;
+	}
   
 	if (argv['setuid'] !== undefined) {
 		if (argv['setgid'] === undefined) {
@@ -273,7 +278,7 @@ Promise.all([dnsServerStarted, httpServerStarted]).then(() => {
 		}
 	}
 
-	if (argv['disable-curses']) {
+	if (!argv['enable-curses']) {
 		console.log("Responding with address " + ipAddr);
 		console.log("Switch DNS IP: " + (argv.host || ip.address()) + " (Use this to connect)");
 		require('./repl');
